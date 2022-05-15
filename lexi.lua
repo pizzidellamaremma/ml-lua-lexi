@@ -2,8 +2,13 @@
 -- MagicLantern long exposure intervalometer for stacking
 -- v0.01 by Pizzi DellaMaremma 
 
+-- ********************************************************
 require("logger")
-local loglev = false  -- true if logging needed (log on console and file LEXI.LOG)
+
+TestBeepNoShutter = 0
+
+--local log = logger("LEXI.LOG")
+--log:write("LEXI - Init logging\n")
 
 lexi = menu.new
 {
@@ -49,68 +54,96 @@ lexi = menu.new
 			value = 1,
 			unit = UNIT.INT
 		},
+		{
+			name = "Debug",
+			help = "Enable logfile inside ML directory.",
+			choices = {"Off", "On"},
+			value = "Off"
+		},
     }
 }
 
--- trigger
+-- Utility function: countdown in seconds
+function countdown(sec)
+	while sec > 0 do
+		display.notify_box(string.format("Starting in %ss", sec))
+		task.yield(1000)
+		sec = sec - 1
+	end
+end
+
+-- Add some checks to verify before starting (return bool)
+function check_control()  -- Check before starting cycle
+	-- Bulb mode
+	if camera.mode ~= MODE.BULB then
+		display.notify_box("LEXI checks - Not in Bulb!")
+		return false
+	end
+	-- TO REMOVE
+	-- display.notify_box(string.format("Camera AF: %s", lens.af))
+	-- task.yield(10000)
+	-- TO REMOVE
+	if lens.af == true then
+		display.notify_box("LEXI checks - Disable AF!")
+		
+		return false
+	end
+	return true
+end
+
+-- Main function
+function main(init_delay, exp_length, dly, reps)  -- Execute the cycle
+	
+	display.notify_box("Starting LEXI...")
+	task.yield(500)
+	
+	-- Initial delay
+	countdown(init_delay)
+			
+	-- Repeated shots
+	local n = 1
+	for i = reps, 0, -1 do
+		
+		display.notify_box(string.format("Running shot %s", n))
+		if TestBeepNoShutter == 0 then
+			camera.bulb(exp_length)
+			task.yield(10)
+		else
+			beep(1,50)
+			task.yield(600 + camera.shutter.ms)
+		end
+		
+		-- Delay between shots
+		if n < reps then 
+			countdown(dly)
+		
+		elseif n == reps then
+			break
+		end
+		
+		n = n + 1 -- Increment n (shot number)
+	end	
+end
+
+-- Trigger function
 function event.keypress(key)
 	-- check halfshutter and enable
 	if key == KEY.HALFSHUTTER and lexi.submenu["Enable"].value == "On" then
 		
-		-- setup logger
-		if loglev == true then
-			local log = logger("LEXI.LOG")
-			log:write("LEXI - Init logging\n")
-		end
-		
-		-- check bulb mode
-		if camera.mode == MODE.BULB then
-		
-			-- set variables
-			local init_delay = lexi.submenu["Initial delay"].value
-			local exp_length = lexi.submenu["Exposure length"].value
-			local dly = lexi.submenu["Delay"].value
-			local reps = lexi.submenu["Repetitions"].value
-			if loglev == true then
-				log:write(string.format("LEXI - Entering cycle - init_delay: %s, exp_length: %s, delay: %s, reps: %s\n", 
-					init_delay, exp_length, dly, reps))
-			end
+		-- Check function
+		if check_control() == true then
 			
-			display.notify_box("Starting LEXI...")
-			sleep(init_delay)
+			-- Call the cycle
+			main(
+				lexi.submenu["Initial delay"].value,
+				lexi.submenu["Exposure length"].value,
+				lexi.submenu["Delay"].value,
+				lexi.submenu["Repetitions"].value
+			)
 			
-			-- repeated shots
-			local n = 1
-			for i = reps, 1, -1 do
-				display.notify_box(string.format("Running cycle %s", n))
-				if loglev == true then
-					log:write(string.format("LEXI - Running cycle %s\n", n))
-				end
-				camera.bulb(exp_length)
-				
-				if n == reps then 
-					break
-				else
-					sleep(dly)
-					n = n + 1
-				end
-			end	
-			
+			-- ERROR: BLOCK NEW CYCLE 
 			lexi.submenu["Enable"].value = "Off"
-			if loglev == true then
-				log:write("LEXI - End Cycle\n")
-			end
 			
-			
-		elseif camera.mode ~= MODE.BULB then 
-			display.notify_box("LEXI error: not in Bulb mode.")
-			if loglev == true then
-				log:write("LEXI - Not in Bulb mode\n")
-			end
-		end
-		if loglev == true then
-			log:write("------------------------------\n")
-			log:close()
 		end
 	end
 end
